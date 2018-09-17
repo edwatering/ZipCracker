@@ -9,10 +9,26 @@
 # python zipCracker.py -f target.zip -d password.txt
 #
 
-import sys, time
+import sys, time, os
 from zipfile import ZipFile
+from zipfile import _ZipDecrypter
+from zipfile import ZipExtFile
 from argparse import ArgumentParser
 import itertools
+
+class SharedFile:
+    def __init__(self, file):
+        self._file = file
+        self._pos = 0
+
+    def read(self, n=-1):
+        self._file.seek(self._pos)
+        data = self._file.read(n)
+        self._pos = self._file.tell()
+        return data
+
+    def close(self):
+        self._file = None
 
 def _exit(string):
 	global parser
@@ -25,15 +41,28 @@ def _resultExit(count, passwd):
 	_timeEnd()
 	exit(0)
 
-def _zFile(zFile, fileName, password):
+def _zFile(zFile, fileName, password, info):
 	try:
-		info = zFile.getinfo(fileName)
-		source = zFile.open(name=info, pwd=password.encode('utf-8'))
-		source.read(10)
-		source.close()
+		zef_file = SharedFile(zFile.fp)
+		zef_file.read(41) # sizeFileHeader + fheader[_FH_FILENAME_LENGTH]  30 + 11
+		zd = _ZipDecrypter(password)
+		bytes = zef_file.read(12)
+		h = map(zd, bytes[0:12])
+		if info.flag_bits & 0x8:
+			check_byte = (info._raw_time >> 8) & 0xff
+		else:
+			check_byte = (info.CRC >> 24) & 0xff
+		if ord(h[11]) != check_byte:
+			# error password
+			zef_file.close()
+			return False
+
+		ZipExtFile(zef_file, "r", info, zd, True).read()
 	except Exception as e:
 		#print(e)
+		zef_file.close()
 		return False
+	zef_file.close()
 	return True
 
 def _timeStart():
@@ -70,7 +99,8 @@ def main():
 			break
 	if zFileName == '':
 		_exit('No valid file in zip ')
-
+	info = zFile.getinfo(zFileName)
+		
 	count = 0
 	if dictionary is not None:
 		f = open(dictionary, 'r')
@@ -79,7 +109,7 @@ def main():
 		print('%s passwords in dictionary file \n' % len(content))
 		for passwd in content:
 			count += 1
-			if _zFile(zFile,zFileName,passwd.strip('\n\r')):
+			if _zFile(zFile,zFileName,passwd.strip('\n\r'),info):
 				_resultExit(count, passwd)
 	else:
 		#characters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890"
@@ -91,7 +121,7 @@ def main():
 			for pw in content:
 				passwd = ''.join(pw)
 				count += 1
-				if _zFile(zFile,zFileName,passwd):
+				if _zFile(zFile,zFileName,passwd,info):
 					_resultExit(count, passwd)
 	print('Tried %d passwords but no password found ...\n' % count)
 	_timeEnd()
