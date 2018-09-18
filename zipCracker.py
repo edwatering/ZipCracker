@@ -19,10 +19,13 @@ class SharedFile:
         self._file = file
         self._pos = 53 # 41 header + 12 CRC
 
+    def init():
+    	self._pos = 53
+
     def read(self, n=-1):
         self._file.seek(self._pos)
         data = self._file.read(n)
-        self._pos = self._file.tell()
+        self._pos += n
         return data
 
     def close(self):
@@ -77,6 +80,7 @@ def main():
 	print('')
 
 	_timeStart()
+
 	zFile = ZipFile(args.zipFile)
 	namelist = zFile.namelist()
 	dictionary = args.dictionary
