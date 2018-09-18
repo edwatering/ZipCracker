@@ -48,8 +48,8 @@ def _zFile(zFile, fileName, password, info, checkByte, bytes):
 			# error password
 			zef_file.close()
 			return False
-
-		ZipExtFile(zef_file, "r", info, zd, True).read()
+		fileExt = ZipExtFile(zef_file, "r", info, zd, True)
+		fileExt.read1(1)
 	except Exception as e:
 		#print(e)
 		zef_file.close()
