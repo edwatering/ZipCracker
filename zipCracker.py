@@ -19,7 +19,7 @@ import itertools
 class SharedFile:
     def __init__(self, file):
         self._file = file
-        self._pos = 0
+        self._pos = 41 # sizeFileHeader + fheader[_FH_FILENAME_LENGTH]  30 + 11
 
     def read(self, n=-1):
         self._file.seek(self._pos)
@@ -44,7 +44,6 @@ def _resultExit(count, passwd):
 def _zFile(zFile, fileName, password, info, checkByte):
 	try:
 		zef_file = SharedFile(zFile.fp)
-		zef_file.read(41) # sizeFileHeader + fheader[_FH_FILENAME_LENGTH]  30 + 11
 		zd = _ZipDecrypter(password)
 		bytes = zef_file.read(12)
 		h = map(zd, bytes[0:12])
