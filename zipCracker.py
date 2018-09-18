@@ -10,16 +10,14 @@
 #
 
 import sys, time, os
-from zipfile import ZipFile
-from zipfile import _ZipDecrypter
-from zipfile import ZipExtFile
+from zipfile import ZipFile, ZipExtFile, _ZipDecrypter
 from argparse import ArgumentParser
 import itertools
 
 class SharedFile:
     def __init__(self, file):
         self._file = file
-        self._pos = 41 # sizeFileHeader + fheader[_FH_FILENAME_LENGTH]  30 + 11
+        self._pos = 53 # 41 header + 12 CRC
 
     def read(self, n=-1):
         self._file.seek(self._pos)
@@ -41,11 +39,10 @@ def _resultExit(count, passwd):
 	_timeEnd()
 	exit(0)
 
-def _zFile(zFile, fileName, password, info, checkByte):
+def _zFile(zFile, fileName, password, info, checkByte, bytes):
 	try:
 		zef_file = SharedFile(zFile.fp)
 		zd = _ZipDecrypter(password)
-		bytes = zef_file.read(12)
 		h = map(zd, bytes[0:12])
 		if ord(h[11]) != checkByte:
 			# error password
@@ -99,6 +96,8 @@ def main():
 		checkByte = (info._raw_time >> 8) & 0xff
 	else:
 		checkByte = (info.CRC >> 24) & 0xff
+	zFile.fp.seek(41)  # sizeFileHeader + fheader[_FH_FILENAME_LENGTH]  30 + 11
+	bytesContent = zFile.fp.read(12)
 		
 	count = 0
 	if dictionary is not None:
@@ -108,7 +107,7 @@ def main():
 		print('%s passwords in dictionary file \n' % len(content))
 		for passwd in content:
 			count += 1
-			if _zFile(zFile, zFileName, passwd.strip('\n\r'), info, checkByte):
+			if _zFile(zFile, zFileName, passwd.strip('\n\r'), info, checkByte, bytesContent):
 				_resultExit(count, passwd)
 	else:
 		#characters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890"
@@ -120,7 +119,7 @@ def main():
 			for pw in content:
 				passwd = ''.join(pw)
 				count += 1
-				if _zFile(zFile, zFileName, passwd, info, checkByte):
+				if _zFile(zFile, zFileName, passwd, info, checkByte, bytesContent):
 					_resultExit(count, passwd)
 	print('Tried %d passwords but no password found ...\n' % count)
 	_timeEnd()
