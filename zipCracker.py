@@ -77,7 +77,6 @@ def main():
 	print('')
 
 	_timeStart()
-
 	zFile = ZipFile(args.zipFile)
 	namelist = zFile.namelist()
 	dictionary = args.dictionary
