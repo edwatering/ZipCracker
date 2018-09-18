@@ -1,3 +1,4 @@
+	main()
 # coding=utf-8
 #
 # Usage:
@@ -19,7 +20,7 @@ class SharedFile:
         self._file = file
         self._pos = 53 # 41 header + 12 CRC
 
-    def init():
+    def init(self):
     	self._pos = 53
 
     def read(self, n=-1):
@@ -29,7 +30,8 @@ class SharedFile:
         return data
 
     def close(self):
-        self._file = None
+    	pass
+        #self._file = None
 
 def _exit(string):
 	global parser
@@ -42,22 +44,19 @@ def _resultExit(count, passwd):
 	_timeEnd()
 	exit(0)
 
-def _zFile(zFile, fileName, password, info, checkByte, bytes):
+def _zFile(zFile, fileName, password, info, checkByte, bytes, zef_file):
 	try:
-		zef_file = SharedFile(zFile.fp)
+		zef_file.init()
 		zd = _ZipDecrypter(password)
 		h = map(zd, bytes[0:12])
 		if ord(h[11]) != checkByte:
 			# error password
-			zef_file.close()
 			return False
 		fileExt = ZipExtFile(zef_file, "r", info, zd, True)
 		fileExt.read1(1)
 	except Exception as e:
 		#print(e)
-		zef_file.close()
 		return False
-	zef_file.close()
 	return True
 
 def _timeStart():
@@ -101,6 +100,7 @@ def main():
 		checkByte = (info.CRC >> 24) & 0xff
 	zFile.fp.seek(41)  # sizeFileHeader + fheader[_FH_FILENAME_LENGTH]  30 + 11
 	bytesContent = zFile.fp.read(12)
+	zef_file = SharedFile(zFile.fp)
 		
 	count = 0
 	if dictionary is not None:
@@ -110,7 +110,7 @@ def main():
 		print('%s passwords in dictionary file \n' % len(content))
 		for passwd in content:
 			count += 1
-			if _zFile(zFile, zFileName, passwd.strip('\n\r'), info, checkByte, bytesContent):
+			if _zFile(zFile, zFileName, passwd.strip('\n\r'), info, checkByte, bytesContent, zef_file):
 				_resultExit(count, passwd)
 	else:
 		#characters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890"
@@ -122,7 +122,7 @@ def main():
 			for pw in content:
 				passwd = ''.join(pw)
 				count += 1
-				if _zFile(zFile, zFileName, passwd, info, checkByte, bytesContent):
+				if _zFile(zFile, zFileName, passwd, info, checkByte, bytesContent, zef_file):
 					_resultExit(count, passwd)
 	print('Tried %d passwords but no password found ...\n' % count)
 	_timeEnd()
