@@ -41,18 +41,14 @@ def _resultExit(count, passwd):
 	_timeEnd()
 	exit(0)
 
-def _zFile(zFile, fileName, password, info):
+def _zFile(zFile, fileName, password, info, checkByte):
 	try:
 		zef_file = SharedFile(zFile.fp)
 		zef_file.read(41) # sizeFileHeader + fheader[_FH_FILENAME_LENGTH]  30 + 11
 		zd = _ZipDecrypter(password)
 		bytes = zef_file.read(12)
 		h = map(zd, bytes[0:12])
-		if info.flag_bits & 0x8:
-			check_byte = (info._raw_time >> 8) & 0xff
-		else:
-			check_byte = (info.CRC >> 24) & 0xff
-		if ord(h[11]) != check_byte:
+		if ord(h[11]) != checkByte:
 			# error password
 			zef_file.close()
 			return False
@@ -100,6 +96,10 @@ def main():
 	if zFileName == '':
 		_exit('No valid file in zip ')
 	info = zFile.getinfo(zFileName)
+	if info.flag_bits & 0x8:
+		checkByte = (info._raw_time >> 8) & 0xff
+	else:
+		checkByte = (info.CRC >> 24) & 0xff
 		
 	count = 0
 	if dictionary is not None:
@@ -109,7 +109,7 @@ def main():
 		print('%s passwords in dictionary file \n' % len(content))
 		for passwd in content:
 			count += 1
-			if _zFile(zFile,zFileName,passwd.strip('\n\r'),info):
+			if _zFile(zFile, zFileName, passwd.strip('\n\r'), info, checkByte):
 				_resultExit(count, passwd)
 	else:
 		#characters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890"
@@ -121,7 +121,7 @@ def main():
 			for pw in content:
 				passwd = ''.join(pw)
 				count += 1
-				if _zFile(zFile,zFileName,passwd,info):
+				if _zFile(zFile, zFileName, passwd, info, checkByte):
 					_resultExit(count, passwd)
 	print('Tried %d passwords but no password found ...\n' % count)
 	_timeEnd()
