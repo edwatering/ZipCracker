@@ -10,7 +10,7 @@
 #
 
 import sys, time, os
-from zipfile import ZipFile, ZipExtFile, _ZipDecrypter
+from zipfile import ZipFile, ZipExtFile
 from argparse import ArgumentParser
 import itertools
 
