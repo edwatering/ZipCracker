@@ -1,4 +1,3 @@
-	main()
 # coding=utf-8
 #
 # Usage:
