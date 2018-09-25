@@ -32,6 +32,52 @@ class SharedFile:
     	pass
         #self._file = None
 
+def _GenerateCRCTable():
+    poly = 0xedb88320
+    table = [0] * 256
+    for i in range(256):
+        crc = i
+        for j in range(8):
+            if crc & 1:
+                crc = ((crc >> 1) & 0x7FFFFFFF) ^ poly
+            else:
+                crc = ((crc >> 1) & 0x7FFFFFFF)
+        table[i] = crc
+    return table
+
+crcInitTable = _GenerateCRCTable() # only once
+
+class ZipDecrypter:
+    def _crc32(self, ch, crc):
+        """Compute the CRC32 primitive on one byte."""
+        global crcInitTable
+        return ((crc >> 8) & 0xffffff) ^ crcInitTable[(crc ^ ord(ch)) & 0xff]
+
+    def __init__(self):
+    	pass
+
+    def init(self, pwd):
+    	self.key0 = 305419896
+        self.key1 = 591751049
+        self.key2 = 878082192
+        for p in pwd:
+            self._UpdateKeys(p)
+
+    def _UpdateKeys(self, c):
+        self.key0 = self._crc32(c, self.key0)
+        self.key1 = (self.key1 + (self.key0 & 255)) & 4294967295
+        self.key1 = (self.key1 * 134775813 + 1) & 4294967295
+        self.key2 = self._crc32(chr((self.key1 >> 24) & 255), self.key2)
+
+    def __call__(self, c):
+        """Decrypt a single character."""
+        c = ord(c)
+        k = self.key2 | 2
+        c = c ^ (((k * (k^1)) >> 8) & 255)
+        c = chr(c)
+        self._UpdateKeys(c)
+        return c
+
 def _exit(string):
 	global parser
 	print ('\nExit : ' + string + '\n')
@@ -43,15 +89,15 @@ def _resultExit(count, passwd):
 	_timeEnd()
 	exit(0)
 
-def _zFile(zFile, fileName, password, info, checkByte, bytes, zef_file):
+def _zFile(zFile, fileName, password, info, checkByte, bytes, zef_file, zipDecrypter):
+	zef_file.init()
 	try:
-		zef_file.init()
-		zd = _ZipDecrypter(password)
-		h = map(zd, bytes[0:12])
+		zipDecrypter.init(password)
+		h = map(zipDecrypter, bytes[0:12])
 		if ord(h[11]) != checkByte:
 			# error password
 			return False
-		fileExt = ZipExtFile(zef_file, "r", info, zd, True)
+		fileExt = ZipExtFile(zef_file, "r", info, zipDecrypter, True)
 		fileExt.read1(1)
 	except Exception as e:
 		#print(e)
@@ -100,7 +146,8 @@ def main():
 	zFile.fp.seek(41)  # sizeFileHeader + fheader[_FH_FILENAME_LENGTH]  30 + 11
 	bytesContent = zFile.fp.read(12)
 	zef_file = SharedFile(zFile.fp)
-		
+	zipDecrypter = ZipDecrypter()
+	
 	count = 0
 	if dictionary is not None:
 		f = open(dictionary, 'r')
@@ -109,7 +156,7 @@ def main():
 		print('%s passwords in dictionary file \n' % len(content))
 		for passwd in content:
 			count += 1
-			if _zFile(zFile, zFileName, passwd.strip('\n\r'), info, checkByte, bytesContent, zef_file):
+			if _zFile(zFile, zFileName, passwd.strip('\n\r'), info, checkByte, bytesContent, zef_file, zipDecrypter):
 				_resultExit(count, passwd)
 	else:
 		#characters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890"
@@ -121,7 +168,7 @@ def main():
 			for pw in content:
 				passwd = ''.join(pw)
 				count += 1
-				if _zFile(zFile, zFileName, passwd, info, checkByte, bytesContent, zef_file):
+				if _zFile(zFile, zFileName, passwd, info, checkByte, bytesContent, zef_file, zipDecrypter):
 					_resultExit(count, passwd)
 	print('Tried %d passwords but no password found ...\n' % count)
 	_timeEnd()
