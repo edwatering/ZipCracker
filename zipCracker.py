@@ -9,10 +9,17 @@
 # python zipCracker.py -f target.zip -d password.txt
 #
 
-import sys, time, os
-from zipfile import ZipFile, ZipExtFile
+import sys, time, os, io
+from zipfile import ZipFile
 from argparse import ArgumentParser
 import itertools
+import re
+try:
+    import zlib # We may need its compression method
+    crc32 = zlib.crc32
+except ImportError:
+    zlib = None
+    crc32 = binascii.crc32
 
 class SharedFile:
     def __init__(self, file):
@@ -78,6 +85,129 @@ class ZipDecrypter:
         self._UpdateKeys(c)
         return c
 
+class ZipExtFile(io.BufferedIOBase):
+    """File-like object for reading an archive member.
+       Is returned by ZipFile.open().
+    """
+
+    # Max size supported by decompressor.
+    MAX_N = 1 << 31 - 1
+
+    # Read from compressed files in 4k blocks.
+    MIN_READ_SIZE = 4096
+
+    # Search for universal newlines or line chunks.
+    PATTERN = re.compile(r'^(?P<chunk>[^\r\n]+)|(?P<newline>\n|\r\n?)')
+
+    def __init__(self, fileobj, mode, zipinfo, decrypter=None,
+            close_fileobj=False):
+        self._fileobj = fileobj
+        self._decrypter = decrypter
+        self._close_fileobj = close_fileobj
+
+        self._compress_type = zipinfo.compress_type
+        self._compress_size = zipinfo.compress_size
+        self._compress_left = zipinfo.compress_size
+
+        if self._compress_type == 8: #ZIP_DEFLATED
+            self._decompressor = zlib.decompressobj(-15)
+        elif self._compress_type != 0: #ZIP_STORED
+            descr = compressor_names.get(self._compress_type)
+            if descr:
+                raise NotImplementedError("compression type %d (%s)" % (self._compress_type, descr))
+            else:
+                raise NotImplementedError("compression type %d" % (self._compress_type,))
+        self._unconsumed = ''
+
+        self._readbuffer = ''
+        self._offset = 0
+
+        self._universal = 'U' in mode
+        self.newlines = None
+
+        # Adjust read size for encrypted files since the first 12 bytes
+        # are for the encryption/password information.
+        if self._decrypter is not None:
+            self._compress_left -= 12
+
+        self.mode = mode
+        self.name = zipinfo.filename
+
+        if hasattr(zipinfo, 'CRC'):
+            self._expected_crc = zipinfo.CRC
+            self._running_crc = crc32(b'') & 0xffffffff
+        else:
+            self._expected_crc = None
+
+    def _update_crc(self, newdata, eof):
+        # Update the CRC using the given data.
+        if self._expected_crc is None:
+            # No need to compute the CRC if we don't have a reference value
+            return
+        self._running_crc = crc32(newdata, self._running_crc) & 0xffffffff
+        # Check the CRC if we're at the end of the file
+        if eof and self._running_crc != self._expected_crc:
+            raise BadZipfile("Bad CRC-32 for file %r" % self.name)
+
+    def read1(self, n):
+        """Read up to n bytes with at most one read() system call."""
+
+        # Simplify algorithm (branching) by transforming negative n to large n.
+        if n < 0 or n is None:
+            n = self.MAX_N
+
+        # Bytes available in read buffer.
+        len_readbuffer = len(self._readbuffer) - self._offset
+
+        # Read from file.
+        if self._compress_left > 0 and n > len_readbuffer + len(self._unconsumed):
+            nbytes = n - len_readbuffer - len(self._unconsumed)
+            nbytes = max(nbytes, self.MIN_READ_SIZE)
+            nbytes = min(nbytes, self._compress_left)
+
+            data = self._fileobj.read(nbytes)
+            self._compress_left -= len(data)
+
+            if data and self._decrypter is not None:
+                data = ''.join(map(self._decrypter, data))
+
+            if self._compress_type == 0: #ZIP_STORED
+                self._update_crc(data, eof=(self._compress_left==0))
+                self._readbuffer = self._readbuffer[self._offset:] + data
+                self._offset = 0
+            else:
+                # Prepare deflated bytes for decompression.
+                self._unconsumed += data
+
+        # Handle unconsumed data.
+        if (len(self._unconsumed) > 0 and n > len_readbuffer and
+            self._compress_type == 8): #ZIP_DEFLATED
+            data = self._decompressor.decompress(
+                self._unconsumed,
+                max(n - len_readbuffer, self.MIN_READ_SIZE)
+            )
+
+            self._unconsumed = self._decompressor.unconsumed_tail
+            eof = len(self._unconsumed) == 0 and self._compress_left == 0
+            if eof:
+                data += self._decompressor.flush()
+
+            self._update_crc(data, eof=eof)
+            self._readbuffer = self._readbuffer[self._offset:] + data
+            self._offset = 0
+
+        # Read from buffer.
+        data = self._readbuffer[self._offset: self._offset + n]
+        self._offset += len(data)
+        return data
+
+    def close(self):
+        try :
+            if self._close_fileobj:
+                self._fileobj.close()
+        finally:
+            super(ZipExtFile, self).close()
+
 def _exit(string):
 	global parser
 	print ('\nExit : ' + string + '\n')
@@ -89,15 +219,15 @@ def _resultExit(count, passwd):
 	_timeEnd()
 	exit(0)
 
-def _zFile(zFile, fileName, password, info, checkByte, bytes, zef_file, zipDecrypter):
-	zef_file.init()
+def _zFile(zFile, fileName, password, info, checkByte, bytes, zefFile, zipDecrypter):
+	zefFile.init()
 	try:
 		zipDecrypter.init(password)
 		h = map(zipDecrypter, bytes[0:12])
 		if ord(h[11]) != checkByte:
 			# error password
 			return False
-		fileExt = ZipExtFile(zef_file, "r", info, zipDecrypter, True)
+		fileExt = ZipExtFile(zefFile, "r", info, zipDecrypter, True)
 		fileExt.read1(1)
 	except Exception as e:
 		#print(e)
