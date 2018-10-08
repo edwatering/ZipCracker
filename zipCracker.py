@@ -93,14 +93,8 @@ class ZipExtFile(io.BufferedIOBase):
         self._compress_size = zipinfo.compress_size
         self._compress_left = zipinfo.compress_size
 
-        if self._compress_type == 8: #ZIP_DEFLATED
-            self._decompressor = zlib.decompressobj(-15)
-        elif self._compress_type != 0: #ZIP_STORED
-            descr = compressor_names.get(self._compress_type)
-            if descr:
-                raise NotImplementedError("compression type %d (%s)" % (self._compress_type, descr))
-            else:
-                raise NotImplementedError("compression type %d" % (self._compress_type,))
+        self._decompressor = zlib.decompressobj(-15) #ZIP_DEFLATED
+
         self._unconsumed = ''
 
         self._readbuffer = ''
@@ -131,22 +125,17 @@ class ZipExtFile(io.BufferedIOBase):
     def read1(self, data):
         """Read up to n bytes with at most one read() system call."""
 
-        #data = self._fileobj.read(22)
+        self._compress_left -= 22
 
-        if self._compress_left > 0:
-            nbytes = self._compress_left
-
-            self._compress_left -= len(data)
-
-            if data and self._decrypter is not None:
-                data = ''.join(map(self._decrypter, data))
-            if self._compress_type == 0: #ZIP_STORED
-                self._update_crc(data, eof=(self._compress_left==0))
-                self._readbuffer = self._readbuffer[self._offset:] + data
-                self._offset = 0
-            else:
-                # Prepare deflated bytes for decompression.
-                self._unconsumed += data
+        data = ''.join(map(self._decrypter, data))
+   
+        if self._compress_type == 0: #ZIP_STORED
+            self._update_crc(data, eof=(self._compress_left==0))
+            self._readbuffer = self._readbuffer[self._offset:] + data
+            self._offset = 0
+        else:
+            # Prepare deflated bytes for decompression.
+            self._unconsumed += data
 
         # Handle unconsumed data.
         if (len(self._unconsumed) > 0 and self._compress_type == 8): #ZIP_DEFLATED
