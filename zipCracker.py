@@ -173,7 +173,7 @@ def _zFile(zFile, fileName, password, info, checkByte, bytes, zefFile, zipDecryp
 	zefFile.init()
 	try:
 		zipDecrypter.init(password)
-		h = map(zipDecrypter, bytes[0:12])
+		h = map(zipDecrypter, bytes)
 		if ord(h[11]) != checkByte:
 			# error password
 			return False
